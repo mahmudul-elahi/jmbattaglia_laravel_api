@@ -17,6 +17,7 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(web: __DIR__.'/../routes/web.php', api: __DIR__.'/../routes/api.php', apiPrefix: 'api/v1', commands: __DIR__.'/../routes/console.php', health: '/up')
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->trustProxies(at: '*');
         $middleware->convertEmptyStringsToNull(except: [fn (Request $request): bool => $request->is('api/*')]);
         $middleware->trimStrings(except: ['password', 'password_confirmation', 'currentPassword', 'newPassword', 'confirmPassword']);
         $middleware->alias(['role' => RoleMiddleware::class, 'permission' => PermissionMiddleware::class]);
