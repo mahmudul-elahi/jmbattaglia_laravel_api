@@ -16,6 +16,10 @@ class ContentEntry extends Model
 
     protected $table = 'content_entries';
 
+    protected $attributes = [
+        'body' => '',
+    ];
+
     protected $fillable = ['key', 'kind', 'title', 'body', 'url', 'category', 'sort_order', 'status', 'version'];
 
     protected function casts(): array

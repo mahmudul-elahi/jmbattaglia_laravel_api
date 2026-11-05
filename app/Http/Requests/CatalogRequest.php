@@ -34,11 +34,52 @@ class CatalogRequest extends StrictRequest
                 $data['priceCents'] = str_contains($clean, '.') || $whole < 1000 ? $whole * 100 + (int) str_pad($parts[1] ?? '', 2, '0') : $whole;
             }
         }
-        if (isset($data['mediaId'])) {
-            $data['mediaIds'] = array_values(array_unique(array_merge([$data['mediaId']], $data['mediaIds'] ?? [])));
+        // Normalize mediaIds & mediaId
+        $mediaIds = [];
+        if (isset($data['mediaIds'])) {
+            if (is_string($data['mediaIds'])) {
+                $decoded = json_decode($data['mediaIds'], true);
+                if (is_array($decoded)) {
+                    $mediaIds = array_map('intval', $decoded);
+                } elseif (is_numeric($data['mediaIds'])) {
+                    $mediaIds = [(int) $data['mediaIds']];
+                } else {
+                    $mediaIds = array_map('intval', array_filter(array_map('trim', explode(',', $data['mediaIds']))));
+                }
+            } elseif (is_array($data['mediaIds'])) {
+                $mediaIds = array_map('intval', $data['mediaIds']);
+            }
         }
-        if (isset($data['isnServiceId'])) {
-            $data['isnServiceIds'] = array_values(array_unique(array_merge([$data['isnServiceId']], $data['isnServiceIds'] ?? [])));
+        if (isset($data['mediaId']) && is_numeric($data['mediaId'])) {
+            $mediaIds[] = (int) $data['mediaId'];
+        }
+        if (! empty($mediaIds)) {
+            $data['mediaIds'] = array_values(array_unique($mediaIds));
+        } else {
+            unset($data['mediaIds']);
+        }
+
+        // Normalize isnServiceIds & isnServiceId
+        $isnServiceIds = [];
+        if (isset($data['isnServiceIds'])) {
+            if (is_string($data['isnServiceIds'])) {
+                $decoded = json_decode($data['isnServiceIds'], true);
+                if (is_array($decoded)) {
+                    $isnServiceIds = $decoded;
+                } else {
+                    $isnServiceIds = array_filter(array_map('trim', explode(',', $data['isnServiceIds'])));
+                }
+            } elseif (is_array($data['isnServiceIds'])) {
+                $isnServiceIds = $data['isnServiceIds'];
+            }
+        }
+        if (isset($data['isnServiceId']) && is_string($data['isnServiceId']) && $data['isnServiceId'] !== '') {
+            $isnServiceIds[] = $data['isnServiceId'];
+        }
+        if (! empty($isnServiceIds)) {
+            $data['isnServiceIds'] = array_values(array_unique($isnServiceIds));
+        } else {
+            unset($data['isnServiceIds']);
         }
         if ($this->isMethod('POST') && isset($data['name'])) {
             $data += ['slug' => Str::slug($data['name']) ?: 'addon-'.bin2hex(random_bytes(8)), 'description' => $data['name'], 'category' => 'RESALE_HOME', 'priceCents' => 0, 'status' => 'PUBLISHED'];

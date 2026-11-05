@@ -61,7 +61,7 @@ return new class extends Migration
             $table->string('slug', 100)->unique();
             $table->string('name', 150);
             $table->string('description', 500);
-            $table->text('why_it_matters')->default('');
+            $table->text('why_it_matters')->nullable();
             $table->jsonb('features');
             $table->string('category');
             $table->string('kind')->default('ADDON');
@@ -83,7 +83,7 @@ return new class extends Migration
             $table->string('key', 100)->unique();
             $table->string('kind');
             $table->string('title', 200);
-            $table->text('body')->default('');
+            $table->text('body')->nullable();
             $table->text('url')->nullable();
             $table->string('category')->nullable();
             $table->unsignedInteger('sort_order')->default(0);
@@ -114,9 +114,9 @@ return new class extends Migration
             $table->id();
             $table->string('brand_name')->default('At Ease Inspections');
             $table->string('help_phone')->default('770-765-6869');
-            $table->text('welcome_title')->default('A home decision, made clearer.');
-            $table->text('pricing_disclaimer')->default('Fees are estimates. Final pricing confirmed before your appointment.');
-            $table->text('confirmation_message')->default('Your inspection request is on its way to our scheduling team. Our team will confirm your time and inspector details.');
+            $table->string('welcome_title', 500)->default('A home decision, made clearer.');
+            $table->string('pricing_disclaimer', 1000)->default('Fees are estimates. Final pricing confirmed before your appointment.');
+            $table->string('confirmation_message', 1000)->default('Your inspection request is on its way to our scheduling team. Our team will confirm your time and inspector details.');
             $table->unsignedInteger('version')->default(1);
             $table->timestampTz('updated_at')->nullable();
         });

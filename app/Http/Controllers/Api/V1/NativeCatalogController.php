@@ -40,12 +40,12 @@ class NativeCatalogController extends Controller
 
     public function store(PackageRequest $request): JsonResponse
     {
-        return ApiResponse::success($this->service->gateway->writePackage(null, $request->validated()), 'Package created', 201);
+        return ApiResponse::success($this->service->createPackage($request->validated(), $request->user()->id), 'Package created', 201);
     }
 
     public function update(PackageRequest $request, string $id): JsonResponse
     {
-        return ApiResponse::success($this->service->gateway->writePackage($id, $request->validated()));
+        return ApiResponse::success($this->service->updatePackage($id, $request->validated(), $request->user()->id));
     }
 
     public function destroy(PackageRequest $request, string $id): JsonResponse

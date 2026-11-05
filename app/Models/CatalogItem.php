@@ -17,6 +17,21 @@ class CatalogItem extends Model
 
     protected $table = 'catalog_items';
 
+    protected $attributes = [
+        'why_it_matters' => '',
+        'features' => '[]',
+        'isn_service_ids' => '[]',
+        'category' => 'RESALE_HOME',
+        'kind' => 'ADDON',
+        'type' => 'SINGLE',
+        'status' => 'DRAFT',
+        'price_cents' => 0,
+        'currency' => 'USD',
+        'recommended' => false,
+        'sort_order' => 0,
+        'version' => 1,
+    ];
+
     protected $fillable = ['slug', 'name', 'description', 'why_it_matters', 'features', 'category', 'kind', 'type', 'status', 'price_cents', 'currency', 'recommended', 'sort_order', 'isn_service_ids', 'isn_package_id', 'isn_order_type_id', 'version'];
 
     protected function casts(): array
