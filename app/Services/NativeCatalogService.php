@@ -8,7 +8,6 @@ use App\Enums\PackageType;
 use App\Enums\PublicationStatus;
 use App\Models\CatalogItem;
 use App\Support\PortalSerializer;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Str;
 
 final class NativeCatalogService
@@ -194,7 +193,8 @@ final class NativeCatalogService
                     }
                 }
             }
-        } catch (\Throwable) {}
+        } catch (\Throwable) {
+        }
 
         if (! $packageId && config('isn.writes_enabled')) {
             try {
@@ -208,7 +208,8 @@ final class NativeCatalogService
                     'services' => $services,
                 ]);
                 $packageId = $res['id'] ?? null;
-            } catch (\Throwable) {}
+            } catch (\Throwable) {
+            }
         }
 
         if (! $packageId) {
@@ -222,7 +223,7 @@ final class NativeCatalogService
             ->first();
 
         if (! $catalogItem) {
-            $catalogItem = new CatalogItem();
+            $catalogItem = new CatalogItem;
             $catalogItem->kind = CatalogKind::Package;
             $catalogItem->isn_package_id = $packageId;
             $catalogItem->slug = Str::slug($input['name']).'-'.substr($packageId, 0, 8);
@@ -277,7 +278,8 @@ final class NativeCatalogService
                 if (! empty($isnPayload)) {
                     $this->gateway->writePackage($id, $isnPayload);
                 }
-            } catch (\Throwable) {}
+            } catch (\Throwable) {
+            }
         }
 
         // 4. Update local metadata
@@ -294,14 +296,15 @@ final class NativeCatalogService
         }
 
         if (! $catalogItem) {
-            $catalogItem = new CatalogItem();
+            $catalogItem = new CatalogItem;
             $catalogItem->kind = CatalogKind::Package;
             $catalogItem->isn_package_id = $id;
 
             $isn = null;
             try {
                 $isn = $this->gateway->package($id);
-            } catch (\Throwable) {}
+            } catch (\Throwable) {
+            }
 
             $catalogItem->name = $input['name'] ?? $isn['name'] ?? 'Package';
             $catalogItem->slug = Str::slug($catalogItem->name).'-'.substr($id, 0, 8);

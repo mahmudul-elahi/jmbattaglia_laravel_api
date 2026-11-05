@@ -2,6 +2,9 @@
 
 namespace App\Services;
 
+use App\Enums\CatalogKind;
+use App\Enums\PublicationStatus;
+use App\Models\CatalogItem;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 
@@ -58,9 +61,46 @@ final class QuoteService implements QuotePreviewServiceInterface
         $bundled = [];
         $local = [];
         if ($packageId) {
-            $package = collect($catalog['packages'])->firstWhere('id', $packageId);
-            abort_unless($package && $package['active'] && $package['visible'], 400, 'Select a visible package.');
-            $bundled = $package['serviceIds'];
+            // Check if packageId is an alias for the primary residential inspection service
+            if (in_array($packageId, ['d0d3f4f4-d184-4168-9e87-725f37bda9e9', 'residential-home', 'bbbc1155-310f-11e3-80f0-22000afd1674'], true)) {
+                $bundled[] = 'bbbc1155-310f-11e3-80f0-22000afd1674';
+                $packageId = null;
+                $input['packageId'] = null;
+            } else {
+                $package = collect($catalog['packages'])->firstWhere('id', $packageId);
+                if (! $package) {
+                    $localPkg = CatalogItem::query()
+                        ->where('kind', CatalogKind::Package)
+                        ->where(fn ($q) => $q->where('isn_package_id', $packageId)->orWhere('id', is_numeric($packageId) ? (int) $packageId : 0))
+                        ->where('status', PublicationStatus::Published)
+                        ->first();
+                    if ($localPkg) {
+                        $package = [
+                            'id' => $localPkg->isn_package_id ?: (string) $localPkg->id,
+                            'name' => $localPkg->name,
+                            'active' => true,
+                            'visible' => true,
+                            'serviceIds' => $localPkg->isn_service_ids ?? [],
+                        ];
+                    }
+                } else {
+                    $localPkg = CatalogItem::query()
+                        ->where('kind', CatalogKind::Package)
+                        ->where(fn ($q) => $q->where('isn_package_id', $packageId)->orWhere('name', $package['name']))
+                        ->where('status', PublicationStatus::Published)
+                        ->first();
+                    if ($localPkg) {
+                        $package['active'] = true;
+                        $package['visible'] = true;
+                        if (! empty($localPkg->isn_service_ids)) {
+                            $package['serviceIds'] = $localPkg->isn_service_ids;
+                        }
+                    }
+                }
+
+                abort_unless($package && $package['active'] && $package['visible'], 400, 'Select a visible package.');
+                $bundled = $package['serviceIds'] ?? [];
+            }
         }
         $selected = $services;
         $services = [];

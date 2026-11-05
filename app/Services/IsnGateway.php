@@ -162,7 +162,7 @@ final class IsnGateway implements IsnGatewayInterface
 
     public function quote(array $property, array $services, ?string $packageId, string $orderTypeId): array
     {
-        $body = $this->call('/calculateservicequote', 'POST', $property + ['services' => json_encode($services, JSON_THROW_ON_ERROR), 'ordertypeuuid' => $orderTypeId] + ($packageId ? ['package' => $packageId] : []));
+        $body = $this->call('/calculateservicequote', 'POST', $property + ['services' => $services, 'ordertypeuuid' => $orderTypeId] + ($packageId ? ['package' => $packageId] : []));
         $rows = $this->rows($body['quotes'] ?? null);
         $lines = [];
         $bundle = [];

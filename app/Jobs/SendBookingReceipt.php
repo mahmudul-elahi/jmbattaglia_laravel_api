@@ -30,13 +30,13 @@ class SendBookingReceipt implements ShouldQueue
             return;
         }
         Cache::lock('receipt:'.$this->orderId, 90)->block(5, function (): void {
-            $order = OrderSubmission::query()->findOrFail($this->orderId);
+            $order = OrderSubmission::query()->with('quote')->findOrFail($this->orderId);
             if (! $order->notification_pending || $order->notification_sent_at || $order->status?->value !== 'SUBMITTED') {
                 return;
             }
             $input = $order->request_data;
             $buyer = $input['customerType'] === 'BUYERS_AGENT' ? $input['buyerContact'] : $input['contact'];
-            Mail::to($buyer['email'])->send(new BookingReceiptMail($order->reference));
+            Mail::to($buyer['email'])->send(new BookingReceiptMail($order));
             $order->update(['notification_pending' => false, 'notification_sent_at' => now()]);
         });
     }

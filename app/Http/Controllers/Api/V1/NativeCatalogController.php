@@ -25,7 +25,7 @@ class NativeCatalogController extends Controller
 
     public function index(PackageRequest $request): JsonResponse
     {
-        return ApiResponse::success($request->is('api/v1/portal/*') ? $this->service->catalog()['packages'] : $this->service->list($request->validated(), false, in_array($request->input('tab'), ['add-ons', 'addons'], true) ? 'ADDON' : 'PACKAGE'));
+        return ApiResponse::success($request->is('api/v1/portal/*') ? $this->service->list($request->validated(), true, 'PACKAGE')['items'] : $this->service->list($request->validated(), false, in_array($request->input('tab'), ['add-ons', 'addons'], true) ? 'ADDON' : 'PACKAGE'));
     }
 
     public function entry(PackageRequest $request, string $id): JsonResponse

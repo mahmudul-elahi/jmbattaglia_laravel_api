@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Services\IsnGateway;
 use Illuminate\Container\Attributes\Bind;
 
 #[Bind(IsnGateway::class)]

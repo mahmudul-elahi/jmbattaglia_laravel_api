@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\IsnGatewayException;
+use App\Jobs\SendBookingReceipt;
 use App\Models\OrderSubmission;
 use App\Models\QuoteSnapshot;
 use App\Support\CanonicalJson;
@@ -60,6 +61,11 @@ final class OrderingService implements OrderingServiceInterface
         } catch (UniqueConstraintViolationException $error) {
             $existing = $this->findByKey($key);
             if ($existing) {
+                if ($existing->status?->value === 'FAILED') {
+                    $existing->delete();
+
+                    return $this->reserve($key, $hash, $input, $preview);
+                }
                 abort_unless(hash_equals($existing->request_hash, $hash), 409, 'Idempotency key was used for a different request.');
 
                 return $existing;
@@ -88,7 +94,7 @@ final class OrderingService implements OrderingServiceInterface
 
     public function complete(int $id, ?int $actor = null): OrderSubmission
     {
-        return DB::transaction(function () use ($id): OrderSubmission {
+        $order = DB::transaction(function () use ($id): OrderSubmission {
             $order = OrderSubmission::query()->lockForUpdate()->findOrFail($id);
             abort_unless(in_array($order->status?->value, ['PROCESSING', 'REQUIRES_REVIEW', 'FAILED', 'SUBMITTED'], true), 409, 'Invalid submission transition.');
             if ($order->status?->value !== 'SUBMITTED') {
@@ -97,6 +103,18 @@ final class OrderingService implements OrderingServiceInterface
 
             return $order->load('quote');
         });
+
+        if (! config('portal.mail_disabled')) {
+            SendBookingReceipt::dispatch($order->id)->afterCommit()->onQueue('notifications');
+        }
+
+        return $order;
+
+        if (! config('portal.mail_disabled')) {
+            SendBookingReceipt::dispatch($order->id)->afterCommit()->onQueue('notifications');
+        }
+
+        return $order;
     }
 
     public function submit(string $key, array $input): OrderSubmission
@@ -104,17 +122,42 @@ final class OrderingService implements OrderingServiceInterface
         $hash = CanonicalJson::hash($input);
         $existing = $this->findByKey($key);
         if ($existing) {
-            abort_unless($existing->hash_version === 'php-canonical-v1', 409, 'Imported requests are available for receipt and reconciliation only.');
-            abort_unless(hash_equals($existing->request_hash, $hash), 409, 'Idempotency key was used for a different request.');
+            if ($existing->status?->value === 'FAILED') {
+                $existing->delete();
+                $existing = null;
+            } else {
+                abort_unless($existing->hash_version === 'php-canonical-v1', 409, 'Imported requests are available for receipt and reconciliation only.');
+                abort_unless(hash_equals($existing->request_hash, $hash), 409, 'Idempotency key was used for a different request.');
 
-            return $existing;
+                return $existing;
+            }
         }
         $preview = $this->quotes->find($input['quoteId']);
-        $quoteInput = Arr::only($input, ['category', 'property', 'serviceIds', 'packageId', 'orderTypeId']);
-        $quoteInput['serviceIds'] ??= [];
-        $original = $preview['input'];
-        $original['serviceIds'] ??= [];
-        abort_unless(CanonicalJson::hash($quoteInput) === CanonicalJson::hash($original), 409, 'Submitted form does not match the quote.');
+        $norm = function (array $t): array {
+            $t['serviceIds'] = array_values(array_unique($t['serviceIds'] ?? []));
+            if (in_array($t['packageId'] ?? null, ['d0d3f4f4-d184-4168-9e87-725f37bda9e9', 'residential-home', 'bbbc1155-310f-11e3-80f0-22000afd1674'], true)) {
+                $t['packageId'] = null;
+                $t['serviceIds'] = array_values(array_unique(array_merge($t['serviceIds'], ['bbbc1155-310f-11e3-80f0-22000afd1674'])));
+            }
+
+            return $t;
+        };
+        $cleanInput = $norm($input);
+        abort_unless($cleanInput['category'] === $preview['category'], 409, 'Submitted category does not match the quote.');
+        abort_unless(($cleanInput['packageId'] ?? null) === ($preview['packageId'] ?? null), 409, 'Submitted package does not match the quote.');
+        if (! empty($cleanInput['packageId'])) {
+            abort_unless(empty(array_diff($cleanInput['serviceIds'], $preview['serviceIds'])), 409, 'Submitted services do not match the quote.');
+        } else {
+            abort_unless(empty(array_diff($cleanInput['serviceIds'], $preview['serviceIds'])) && empty(array_diff($preview['serviceIds'], $cleanInput['serviceIds'])), 409, 'Submitted services do not match the quote.');
+        }
+
+        $quoteInput = [
+            'category' => $cleanInput['category'],
+            'property' => $input['property'],
+            'serviceIds' => $cleanInput['serviceIds'],
+            'packageId' => $cleanInput['packageId'] ?? null,
+            'orderTypeId' => $cleanInput['orderTypeId'] ?? $preview['orderTypeId'],
+        ];
         $order = $this->reserve($key, $hash, $input, $preview);
         if (! $this->claim($order->id)) {
             return $order->refresh()->load('quote');
@@ -135,7 +178,7 @@ final class OrderingService implements OrderingServiceInterface
             $writeStarted = true;
             $order = $this->inspect($order->id);
             $p = $preview['property'];
-            $payload = QuoteService::propertyPayload($p, true) + ['clientuuid' => $client['id'], 'ordertypeuuid' => $preview['orderTypeId'], 'services' => $preview['serviceIds'], 'datetime' => $input['date'].' '.$input['time'].':00', 'duration' => $preview['durationMinutes'], 'inspector1uuid' => $input['inspectorId'], 'inprogress' => true, 'clientattending' => $p['clientAttending'] ? 'Yes' : 'No', 'propertyoccupied' => $p['occupied'], 'utilitieson' => $p['utilitiesOn'], 'gatecode' => $p['gateCode'] ?? '', 'referredreason' => $p['referral'], 'notes' => [['owner' => $capabilities['principalId'], 'text' => $this->note($order)]]];
+            $payload = QuoteService::propertyPayload($p, true) + ['clientuuid' => $client['id'], 'ordertypeuuid' => $preview['orderTypeId'], 'services' => $preview['serviceIds'], 'datetime' => $input['date'].' '.$input['time'].':00', 'duration' => $preview['durationMinutes'], 'inspector1uuid' => $input['inspectorId'], 'inprogress' => true, 'clientattending' => $p['clientAttending'] ? 'Yes' : 'No', 'propertyoccupied' => $p['occupied'], 'utilitieson' => $p['utilitiesOn'], 'gatecode' => $p['gateCode'] ?? '', 'referredreason' => $p['referral'] ?? 'Website', 'notes' => [['owner' => $capabilities['principalId'], 'text' => $this->note($order)]]];
             if ($agent) {
                 $payload['buyersagentuuid'] = $agent['id'];
             }
@@ -192,10 +235,10 @@ final class OrderingService implements OrderingServiceInterface
             'Alarm: '.($p['alarmStatus'] ?? $boolean($p['alarmSystem'])),
             'Pool/spa: '.($p['poolSpaType'] ?? $boolean($p['poolSpa'])),
             'Utilities: '.($p['utilityStatus'] ?? $boolean($p['utilitiesOn'])),
-            'Sewage: '.$p['sewageSystem'],
-            'Water: '.$p['waterSystem'],
+            'Sewage: '.($p['sewageSystem'] ?? 'Public'),
+            'Water: '.($p['waterSystem'] ?? 'Public'),
             'Gate code: '.($p['gateCode'] ?? 'Not provided'),
-            'Referral: '.$p['referral'],
+            'Referral: '.($p['referral'] ?? 'Website'),
             'Due diligence: '.($p['dueDiligence'] ?? 'Not provided'),
             'Due diligence date: '.($p['dueDiligenceDate'] ?? 'Not provided'),
         ]);
@@ -232,7 +275,7 @@ final class OrderingService implements OrderingServiceInterface
         if (! is_array($services)) {
             return false;
         }
-        $services = array_map(fn ($row) => is_string($row) ? $row : (is_array($row) ? ($row['serviceid'] ?? $row['serviceuuid'] ?? $row['service'] ?? $row['id'] ?? '') : ''), $services);
+        $services = array_map(fn ($row) => is_string($row) ? $row : (is_array($row) ? ($row['uuid'] ?? $row['serviceid'] ?? $row['serviceuuid'] ?? $row['service'] ?? $row['id'] ?? '') : ''), $services);
         $expectedServices = $order->quote->service_ids;
         sort($expectedServices);
         sort($services);

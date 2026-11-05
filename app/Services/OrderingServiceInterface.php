@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\OrderSubmission;
-use App\Services\OrderingService;
 use Illuminate\Container\Attributes\Bind;
 
 #[Bind(OrderingService::class)]
