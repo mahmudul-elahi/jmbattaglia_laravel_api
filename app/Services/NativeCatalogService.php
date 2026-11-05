@@ -356,6 +356,33 @@ final class NativeCatalogService
         return $this->formatPackage($id, $catalogItem->load('media'), false);
     }
 
+    public function deletePackage(string $id): array
+    {
+        $local = CatalogItem::query()
+            ->where('kind', CatalogKind::Package)
+            ->where(fn ($q) => $q->where('isn_package_id', $id)->orWhere('id', is_numeric($id) ? (int) $id : 0))
+            ->first();
+
+        if ($local) {
+            $local->media()->detach();
+            $local->delete();
+        }
+
+        if (config('isn.writes_enabled')) {
+            try {
+                return $this->gateway->writePackage($id, [], true);
+            } catch (\Throwable $e) {
+                if (! $local) {
+                    throw $e;
+                }
+            }
+        } elseif (! $local) {
+            abort(503, 'ISN writes are disabled in .env (ISN_WRITES_ENABLED=false). Remote ISN packages cannot be deleted until writes are enabled.');
+        }
+
+        return ['id' => $id, 'deleted' => true];
+    }
+
     public function formatPackage(string $id, ?CatalogItem $local, bool $public = false, ?array $isnPkg = null): array
     {
         if (! $isnPkg) {

@@ -50,7 +50,7 @@ class NativeCatalogController extends Controller
 
     public function destroy(PackageRequest $request, string $id): JsonResponse
     {
-        return ApiResponse::success($this->service->gateway->writePackage($id, [], true));
+        return ApiResponse::success($this->service->deletePackage($id));
     }
 
     public function orderTypes(PackageRequest $request): JsonResponse

@@ -35,7 +35,14 @@ return Application::configure(basePath: dirname(__DIR__))
                 $error instanceof HttpExceptionInterface => $error->getStatusCode(),
                 default => 500
             };
-            $message = $error instanceof UniqueConstraintViolationException ? ['A record with these unique fields already exists.'] : ($error instanceof ValidationException ? array_merge(...array_values($error->errors())) : [$status >= 500 ? ($status === 503 ? 'Service temporarily unavailable.' : 'An unexpected error occurred.') : ($error->getMessage() ?: Response::$statusTexts[$status])]);
+            $message = match (true) {
+                $error instanceof UniqueConstraintViolationException => ['A record with these unique fields already exists.'],
+                $error instanceof ValidationException => array_merge(...array_values($error->errors())),
+                $error instanceof HttpExceptionInterface && ! empty($error->getMessage()) => [$error->getMessage()],
+                $status === 503 => ['Service temporarily unavailable.'],
+                $status >= 500 => ['An unexpected error occurred.'],
+                default => [$error->getMessage() ?: Response::$statusTexts[$status] ?? 'Unknown error']
+            };
             $headers = $error instanceof HttpExceptionInterface ? $error->getHeaders() : [];
 
             return response()->json([
