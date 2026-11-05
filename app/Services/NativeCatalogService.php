@@ -2,8 +2,6 @@
 
 namespace App\Services;
 
-use App\Contracts\Gateways\IsnGatewayInterface;
-
 final class NativeCatalogService
 {
     public function __construct(public IsnGatewayInterface $gateway) {}

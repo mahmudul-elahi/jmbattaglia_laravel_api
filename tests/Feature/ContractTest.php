@@ -46,7 +46,7 @@ it('surfaces stalled submissions for review without making external requests', f
     expect($order->fresh()->status->value)->toBe('REQUIRES_REVIEW');
     Http::assertNothingSent();
 });
-it('covers every registered API operation in the generated contract and sets request IDs on errors', function (): void {
+it('covers every registered API operation in the generated contract', function (): void {
     $this->artisan('portal:openapi')->assertSuccessful();
     $contract = json_decode(file_get_contents(public_path('openapi.json')), true, 512, JSON_THROW_ON_ERROR);
     foreach (Route::getRoutes() as $route) {
@@ -57,6 +57,6 @@ it('covers every registered API operation in the generated contract and sets req
         }
     }
     expect(isset($contract['paths']['/api/v1/auth/refresh/token']))->toBeFalse();
-    $this->getJson('/api/v1/does-not-exist')->assertNotFound()->assertHeader('X-Request-Id')->assertJsonStructure(['requestId', 'timestamp']);
+    $this->getJson('/api/v1/does-not-exist')->assertNotFound()->assertJsonStructure(['timestamp']);
     $this->get('/api-explorer')->assertOk()->assertSee('At Ease API');
 });

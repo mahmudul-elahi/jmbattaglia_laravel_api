@@ -13517,7 +13517,6 @@
                     "success",
                     "statusCode",
                     "message",
-                    "requestId",
                     "timestamp"
                 ],
                 "properties": {
@@ -13532,9 +13531,6 @@
                         "items": {
                             "type": "string"
                         }
-                    },
-                    "requestId": {
-                        "type": "string"
                     },
                     "timestamp": {
                         "type": "string",

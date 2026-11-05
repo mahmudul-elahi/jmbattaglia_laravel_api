@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Contracts\Gateways\IsnGatewayInterface;
 use Carbon\CarbonImmutable;
 
 final class AvailabilityService

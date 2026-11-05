@@ -1,8 +1,7 @@
 <?php
 
-namespace App\Integrations\Isn;
+namespace App\Services;
 
-use App\Contracts\Gateways\IsnGatewayInterface;
 use App\Exceptions\IsnGatewayException;
 use App\Support\Money;
 use Illuminate\Http\Client\ConnectionException;
@@ -45,7 +44,7 @@ final class IsnGateway implements IsnGatewayInterface
             $remoteId = $response->json('id');
             throw new IsnGatewayException(match (true) {
                 ! $safe && is_string($remoteId) && $remoteId !== '' => 'AMBIGUOUS',
-                $response->status() === 403 => 'PERMISSION',$response->status() === 404 => 'NOT_FOUND',! $safe && $response->status() >= 500 => 'AMBIGUOUS',$response->status() >= 500 || $response->status() === 429 => 'UNAVAILABLE',default => 'REJECTED'
+                $response->status() === 403 => 'PERMISSION', $response->status() === 404 => 'NOT_FOUND', ! $safe && $response->status() >= 500 => 'AMBIGUOUS', $response->status() >= 500 || $response->status() === 429 => 'UNAVAILABLE', default => 'REJECTED'
             });
         }
         $body = $response->json();
@@ -197,7 +196,7 @@ final class IsnGateway implements IsnGatewayInterface
         $body = $this->call('/availableslots', 'GET', ['zip' => $zip, 'services' => $services, 'offset' => $offset, 'daysahead' => $days] + ($inspectorId ? ['inspector' => $inspectorId] : []));
 
         return array_map(function (array $row): array {
-            abort_unless(isset($row['userid'],$row['start'],$row['end']), 503, 'Invalid ISN availability window.');
+            abort_unless(isset($row['userid'], $row['start'], $row['end']), 503, 'Invalid ISN availability window.');
 
             return ['inspectorId' => $row['userid'], 'inspectorName' => $row['userdisplay'] ?? '', 'start' => $row['start'], 'end' => $row['end']];
         }, $this->rows($body['slots'] ?? null));
@@ -220,7 +219,7 @@ final class IsnGateway implements IsnGatewayInterface
         if ($found) {
             return $found;
         }
-        $body = $this->call('/'.$kind, 'POST', ['firstname' => $contact['firstName'], 'lastname' => $contact['lastName'], 'emailaddress' => $contact['email'], 'mobilephone' => $contact['phone']]);
+        $body = $this->call('/'.$kind, 'POST', ['firstname' => $contact['firstName'], 'lastName' => $contact['lastName'], 'emailaddress' => $contact['email'], 'mobilephone' => $contact['phone']]);
 
         return ['id' => $this->id($body)] + $contact;
     }

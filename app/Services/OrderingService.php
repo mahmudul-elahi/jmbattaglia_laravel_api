@@ -2,22 +2,107 @@
 
 namespace App\Services;
 
-use App\Contracts\Gateways\IsnGatewayInterface;
-use App\Contracts\Repositories\OrderingRepositoryInterface;
 use App\Exceptions\IsnGatewayException;
 use App\Models\OrderSubmission;
+use App\Models\QuoteSnapshot;
 use App\Support\CanonicalJson;
 use App\Support\Money;
+use App\Support\PortalSerializer;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 
-final class OrderingService
+final class OrderingService implements OrderingServiceInterface
 {
-    public function __construct(private OrderingRepositoryInterface $orders, private QuoteService $quotes, private AvailabilityService $availability, private IsnGatewayInterface $gateway) {}
+    public function __construct(
+        private QuoteService $quotes,
+        private AvailabilityService $availability,
+        private IsnGatewayInterface $gateway
+    ) {}
+
+    public function listing(array $filters): array
+    {
+        $rows = OrderSubmission::query()
+            ->when(isset($filters['status']), fn ($q) => $q->where('status', $filters['status']))
+            ->orderByDesc('id')
+            ->paginate($filters['limit'] ?? 20, ['*'], 'page', $filters['page'] ?? 1);
+
+        return [
+            'items' => $rows->getCollection()->map(fn ($row) => PortalSerializer::model($row)),
+            'total' => $rows->total(),
+            'page' => $rows->currentPage(),
+            'limit' => $rows->perPage(),
+        ];
+    }
+
+    public function inspect(int $id): OrderSubmission
+    {
+        return OrderSubmission::query()->with('quote')->findOrFail($id);
+    }
+
+    public function findByKey(string $key): ?OrderSubmission
+    {
+        return OrderSubmission::query()->with('quote')->where('idempotency_key', $key)->first();
+    }
+
+    public function reserve(string $key, string $hash, array $input, array $preview): OrderSubmission
+    {
+        try {
+            return DB::transaction(function () use ($key, $hash, $input, $preview): OrderSubmission {
+                $attributes = PortalSerializer::attributes(Arr::except($preview, ['input']));
+                $attributes['preview_token'] = $input['quoteId'];
+                $quote = QuoteSnapshot::query()->create($attributes);
+                $order = OrderSubmission::query()->create(['idempotency_key' => $key, 'request_hash' => $hash, 'quote_id' => $quote->id, 'request_data' => $input]);
+                $order->update(['reference' => 'AE-'.$order->id]);
+
+                return $order->load('quote');
+            });
+        } catch (UniqueConstraintViolationException $error) {
+            $existing = $this->findByKey($key);
+            if ($existing) {
+                abort_unless(hash_equals($existing->request_hash, $hash), 409, 'Idempotency key was used for a different request.');
+
+                return $existing;
+            }
+            abort(409, 'This quote has already been submitted.');
+        }
+    }
+
+    public function startWrite(int $id): bool
+    {
+        return OrderSubmission::query()->whereKey($id)->where('status', 'PROCESSING')->where('phase', 'CONTACTS_STARTED')->update(['phase' => 'ORDER_WRITE_STARTED']) === 1;
+    }
+
+    public function claim(int $id): bool
+    {
+        return OrderSubmission::query()->whereKey($id)->where('status', 'PROCESSING')->where('phase', 'PREPARING')->update(['phase' => 'CONTACTS_STARTED']) === 1;
+    }
+
+    public function update(int $id, array $attributes): OrderSubmission
+    {
+        $order = OrderSubmission::query()->findOrFail($id);
+        $order->update($attributes);
+
+        return $order->load('quote');
+    }
+
+    public function complete(int $id, ?int $actor = null): OrderSubmission
+    {
+        return DB::transaction(function () use ($id): OrderSubmission {
+            $order = OrderSubmission::query()->lockForUpdate()->findOrFail($id);
+            abort_unless(in_array($order->status?->value, ['PROCESSING', 'REQUIRES_REVIEW', 'FAILED', 'SUBMITTED'], true), 409, 'Invalid submission transition.');
+            if ($order->status?->value !== 'SUBMITTED') {
+                $order->update(['status' => 'SUBMITTED', 'phase' => 'ORDER_VERIFIED', 'error_code' => null, 'notification_pending' => true]);
+            }
+
+            return $order->load('quote');
+        });
+    }
 
     public function submit(string $key, array $input): OrderSubmission
     {
         $hash = CanonicalJson::hash($input);
-        $existing = $this->orders->findByKey($key);
+        $existing = $this->findByKey($key);
         if ($existing) {
             abort_unless($existing->hash_version === 'php-canonical-v1', 409, 'Imported requests are available for receipt and reconciliation only.');
             abort_unless(hash_equals($existing->request_hash, $hash), 409, 'Idempotency key was used for a different request.');
@@ -30,8 +115,8 @@ final class OrderingService
         $original = $preview['input'];
         $original['serviceIds'] ??= [];
         abort_unless(CanonicalJson::hash($quoteInput) === CanonicalJson::hash($original), 409, 'Submitted form does not match the quote.');
-        $order = $this->orders->reserve($key, $hash, $input, $preview);
-        if (! $this->orders->claim($order->id)) {
+        $order = $this->reserve($key, $hash, $input, $preview);
+        if (! $this->claim($order->id)) {
             return $order->refresh()->load('quote');
         }
         $writeStarted = false;
@@ -43,12 +128,12 @@ final class OrderingService
             abort_unless($capabilities['writesEnabled'] && $capabilities['canQuote'] && ($input['customerType'] !== 'BUYERS_AGENT' || $capabilities['canCreateAgent']), 503, 'ISN booking is not enabled.');
             $buyer = $input['customerType'] === 'BUYERS_AGENT' ? $input['buyerContact'] : $input['contact'];
             $client = $this->gateway->ensureContact($buyer);
-            $order = $this->orders->update($order->id, ['client_id' => $client['id']]);
+            $order = $this->update($order->id, ['client_id' => $client['id']]);
             $agent = $input['customerType'] === 'BUYERS_AGENT' ? $this->gateway->ensureContact($input['contact'], 'agent') : null;
-            $order = $this->orders->update($order->id, ['agent_id' => $agent['id'] ?? null]);
-            abort_unless($this->orders->startWrite($order->id), 409, 'Submission is no longer available for remote write.');
+            $order = $this->update($order->id, ['agent_id' => $agent['id'] ?? null]);
+            abort_unless($this->startWrite($order->id), 409, 'Submission is no longer available for remote write.');
             $writeStarted = true;
-            $order = $this->orders->inspect($order->id);
+            $order = $this->inspect($order->id);
             $p = $preview['property'];
             $payload = QuoteService::propertyPayload($p, true) + ['clientuuid' => $client['id'], 'ordertypeuuid' => $preview['orderTypeId'], 'services' => $preview['serviceIds'], 'datetime' => $input['date'].' '.$input['time'].':00', 'duration' => $preview['durationMinutes'], 'inspector1uuid' => $input['inspectorId'], 'inprogress' => true, 'clientattending' => $p['clientAttending'] ? 'Yes' : 'No', 'propertyoccupied' => $p['occupied'], 'utilitieson' => $p['utilitiesOn'], 'gatecode' => $p['gateCode'] ?? '', 'referredreason' => $p['referral'], 'notes' => [['owner' => $capabilities['principalId'], 'text' => $this->note($order)]]];
             if ($agent) {
@@ -58,23 +143,23 @@ final class OrderingService
                 $payload['packages'] = [['package' => $preview['packageId']]];
             }
             $remote = $this->gateway->createOrder($payload);
-            $order = $this->orders->update($order->id, ['remote_order_id' => $remote['id'], 'remote_order_number' => $remote['orderNumber'], 'phase' => 'ORDER_SAVED']);
+            $order = $this->update($order->id, ['remote_order_id' => $remote['id'], 'remote_order_number' => $remote['orderNumber'], 'phase' => 'ORDER_SAVED']);
             if ($remote['partial']) {
-                return $this->orders->update($order->id, ['status' => 'REQUIRES_REVIEW', 'error_code' => 'ISN_PARTIAL_ORDER']);
+                return $this->update($order->id, ['status' => 'REQUIRES_REVIEW', 'error_code' => 'ISN_PARTIAL_ORDER']);
             }
             $saved = $this->gateway->readOrder($remote['id']);
             if (! $this->verify($order, $saved)) {
-                return $this->orders->update($order->id, ['status' => 'REQUIRES_REVIEW', 'error_code' => 'ISN_READBACK_MISMATCH']);
+                return $this->update($order->id, ['status' => 'REQUIRES_REVIEW', 'error_code' => 'ISN_READBACK_MISMATCH']);
             }
 
-            return $this->orders->complete($order->id);
+            return $this->complete($order->id);
         } catch (\Throwable $error) {
             $review = $writeStarted || ($error instanceof IsnGatewayException && $error->kind === 'AMBIGUOUS');
             $attributes = ['status' => $review ? 'REQUIRES_REVIEW' : 'FAILED', 'error_code' => $review ? 'ISN_UNCERTAIN_WRITE' : 'PREPARATION_FAILED'];
             if ($writeStarted && $error instanceof IsnGatewayException && $error->remoteId) {
                 $attributes['remote_order_id'] = $error->remoteId;
             }
-            $order = $this->orders->update($order->id, $attributes);
+            $order = $this->update($order->id, $attributes);
             if ($review) {
                 return $order;
             }
@@ -86,7 +171,7 @@ final class OrderingService
     {
         abort_unless(preg_match('/^(?:[a-f0-9]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i', $key), 404);
 
-        return $this->orders->receipt($id, $key);
+        return OrderSubmission::query()->with('quote')->whereKey($id)->where('idempotency_key', $key)->firstOrFail();
     }
 
     public function note(OrderSubmission $order): string
@@ -165,14 +250,14 @@ final class OrderingService
 
     public function reconcile(int $id, string $remoteId, ?int $actor = null): OrderSubmission
     {
-        $order = $this->orders->inspect($id);
+        $order = $this->inspect($id);
         abort_unless(in_array($order->status?->value, ['REQUIRES_REVIEW', 'FAILED'], true), 409, 'Only failed or review submissions may be reconciled.');
         abort_if($order->remote_order_id && $order->remote_order_id !== $remoteId, 409, 'Remote order identifier does not match.');
         $saved = $this->gateway->readOrder($remoteId);
         $order->remote_order_id = $remoteId;
         abort_unless($this->verify($order, $saved), 409, 'Remote order does not match this submission.');
-        $this->orders->update($id, ['remote_order_id' => $remoteId]);
+        $this->update($id, ['remote_order_id' => $remoteId]);
 
-        return $this->orders->complete($id,$actor);
+        return $this->complete($id, $actor);
     }
 }

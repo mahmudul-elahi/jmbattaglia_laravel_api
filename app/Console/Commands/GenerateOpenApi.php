@@ -77,7 +77,7 @@ final class GenerateOpenApi extends Command
         ksort($paths);
         $document = ['openapi' => '3.1.0', 'info' => ['title' => 'At Ease API', 'version' => '1.0.0', 'description' => 'Integer local IDs, provider string IDs, expiring Sanctum bearer tokens, and no refresh endpoint. Booking submissions remain requests awaiting staff confirmation.'], 'servers' => [['url' => '/']], 'paths' => $paths, 'components' => ['securitySchemes' => ['bearerAuth' => ['type' => 'http', 'scheme' => 'bearer']], 'schemas' => [
             'Success' => ['type' => 'object', 'required' => ['success', 'statusCode', 'message', 'data'], 'properties' => ['success' => ['const' => true], 'statusCode' => ['type' => 'integer'], 'message' => ['type' => 'string'], 'data' => (object) []]],
-            'Error' => ['type' => 'object', 'required' => ['success', 'statusCode', 'message', 'requestId', 'timestamp'], 'properties' => ['success' => ['const' => false], 'statusCode' => ['type' => 'integer'], 'message' => ['type' => 'array', 'items' => ['type' => 'string']], 'requestId' => ['type' => 'string'], 'timestamp' => ['type' => 'string', 'format' => 'date-time']]],
+            'Error' => ['type' => 'object', 'required' => ['success', 'statusCode', 'message', 'timestamp'], 'properties' => ['success' => ['const' => false], 'statusCode' => ['type' => 'integer'], 'message' => ['type' => 'array', 'items' => ['type' => 'string']], 'timestamp' => ['type' => 'string', 'format' => 'date-time']]],
         ]]];
         $document['components']['schemas'] += $this->responseSchemas();
         $target = base_path($this->option('output'));

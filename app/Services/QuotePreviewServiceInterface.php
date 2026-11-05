@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Contracts\Repositories;
+namespace App\Services;
 
-interface QuotePreviewRepositoryInterface
+interface QuotePreviewServiceInterface
 {
     public function put(array $preview): string;
 

@@ -1,6 +1,5 @@
 <?php
 
-use App\Contracts\Repositories\QuotePreviewRepositoryInterface;
 use App\Jobs\SendBookingReceipt;
 use App\Jobs\SendSecurityCode;
 use App\Models\BookingCompletion;
@@ -9,6 +8,7 @@ use App\Models\OrderSubmission;
 use App\Models\RecommendationRule;
 use App\Models\User;
 use App\Services\LookupService;
+use App\Services\QuotePreviewServiceInterface;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -90,7 +90,7 @@ it('does not synchronize historical bookings when credentials or configuration c
 });
 it('uses Redis preview expiry and atomically consumes verified lookup challenges', function (): void {
     config(['database.redis.portal_test' => ['host' => '127.0.0.1', 'port' => 6379, 'database' => 15], 'cache.stores.portal_test' => ['driver' => 'redis', 'connection' => 'portal_test', 'lock_connection' => 'portal_test', 'prefix' => 'atease-fixture:'.bin2hex(random_bytes(8)).':'], 'portal.preview_store' => 'portal_test', 'portal.mail_disabled' => false, 'isn.mode' => 'isn', 'isn.base_url' => 'https://lookup.test', 'isn.access_key' => 'fixture', 'isn.secret_key' => 'fixture']);
-    $previews = app(QuotePreviewRepositoryInterface::class);
+    $previews = app(QuotePreviewServiceInterface::class);
     $token = $previews->put(['totalCents' => 45000]);
     $store = Cache::store('portal_test');
     $ttl = Redis::connection('portal_test')->ttl($store->getStore()->getPrefix().'portal:quote:'.$token);
@@ -107,4 +107,4 @@ it('uses Redis preview expiry and atomically consumes verified lookup challenges
     expect($lookup->verify($challenge['challengeId'], $code)['contact']['id'])->toBe('client-1');
     expect(fn () => $lookup->verify($challenge['challengeId'], $code))->toThrow(HttpException::class);
     Http::assertSentCount(1);
-})->skip(fn () => getenv('PORTAL_REDIS_TESTS') !== '1','Enable PORTAL_REDIS_TESTS=1 with disposable Redis access.');
+})->skip(fn () => getenv('PORTAL_REDIS_TESTS') !== '1', 'Enable PORTAL_REDIS_TESTS=1 with disposable Redis access.');

@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Contracts\Gateways;
+namespace App\Services;
 
 interface IsnGatewayInterface
 {

@@ -1,8 +1,8 @@
 <?php
 
-use App\Contracts\Repositories\OrderingRepositoryInterface;
 use App\Models\OrderSubmission;
 use App\Models\QuoteSnapshot;
+use App\Services\OrderingServiceInterface;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -20,7 +20,7 @@ it('resolves concurrent PostgreSQL reservation races after rolling back the losi
             DB::purge();
             try {
                 $key = str_repeat($sameKey ? 'a' : ($i === 0 ? 'a' : 'b'), 64);
-                $order = app(OrderingRepositoryInterface::class)->reserve($key, str_repeat('f', 64), ['quoteId' => str_repeat('c', 64)], $preview);
+                $order = app(OrderingServiceInterface::class)->reserve($key, str_repeat('f', 64), ['quoteId' => str_repeat('c', 64)], $preview);
                 fwrite($pair[1], json_encode(['id' => $order->id]));
             } catch (HttpException $error) {
                 fwrite($pair[1], json_encode(['error' => $error->getStatusCode()]));

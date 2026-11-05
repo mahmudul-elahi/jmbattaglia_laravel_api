@@ -16,14 +16,14 @@ class CatalogController extends Controller
     public function index(CatalogRequest $request): JsonResponse
     {
         $public = $request->is('api/v1/portal/*');
-        $data = $this->service->repository->listing('addons', $request->validated(), $public);
+        $data = $this->service->listing('addons', $request->validated(), $public);
 
         return ApiResponse::success($public ? $data['items'] : $data);
     }
 
     public function show(CatalogRequest $request, int $id): JsonResponse
     {
-        return ApiResponse::success((new PortalResource($this->service->repository->find('addons', $id, $request->is('api/v1/portal/*'))))->resolve($request));
+        return ApiResponse::success((new PortalResource($this->service->find('addons', $id, $request->is('api/v1/portal/*'))))->resolve($request));
     }
 
     public function store(CatalogRequest $request): JsonResponse
@@ -38,7 +38,7 @@ class CatalogController extends Controller
 
     public function destroy(CatalogRequest $request, int $id): JsonResponse
     {
-        $this->service->repository->deleteAddon($id, $request->validated('version'), $request->boolean('permanent'), $request->user()->id);
+        $this->service->deleteAddon($id, $request->validated('version'), $request->boolean('permanent'), $request->user()->id);
 
         return ApiResponse::success();
     }

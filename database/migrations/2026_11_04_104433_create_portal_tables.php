@@ -120,17 +120,6 @@ return new class extends Migration
             $table->unsignedInteger('version')->default(1);
             $table->timestampTz('updated_at')->nullable();
         });
-        Schema::create('audit_logs', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('actor_id')->nullable()->constrained('users')->nullOnDelete();
-            $table->string('actor_label')->nullable();
-            $table->string('action');
-            $table->string('entity_type');
-            $table->unsignedBigInteger('local_entity_id')->nullable();
-            $table->string('external_entity_id')->nullable();
-            $table->timestampTz('created_at')->useCurrent();
-            $table->index(['entity_type', 'local_entity_id', 'created_at']);
-        });
         Schema::create('quote_snapshots', function (Blueprint $table): void {
             $table->id();
             $table->char('preview_token', 64)->unique();
@@ -208,7 +197,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        foreach (['booking_completions', 'booking_drafts', 'legacy_id_maps', 'order_submissions', 'quote_snapshots', 'audit_logs', 'portal_settings', 'recommendation_rules', 'content_media', 'catalog_media', 'content_entries', 'catalog_items', 'media_assets', 'password_reset_grants', 'otps', 'user_profiles'] as $table) {
+        foreach (['booking_completions', 'booking_drafts', 'legacy_id_maps', 'order_submissions', 'quote_snapshots', 'portal_settings', 'recommendation_rules', 'content_media', 'catalog_media', 'content_entries', 'catalog_items', 'media_assets', 'password_reset_grants', 'otps', 'user_profiles'] as $table) {
             Schema::dropIfExists($table);
         }
     }

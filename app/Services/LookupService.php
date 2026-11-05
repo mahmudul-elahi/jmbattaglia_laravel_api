@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use App\Contracts\Gateways\IsnGatewayInterface;
 use App\Jobs\SendSecurityCode;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;

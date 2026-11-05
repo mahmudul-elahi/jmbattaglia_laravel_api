@@ -2,31 +2,46 @@
 
 namespace App\Services;
 
-use App\Contracts\Gateways\IsnGatewayInterface;
-use App\Contracts\Repositories\OrderingRepositoryInterface;
 use App\Models\BookingCompletion;
 use App\Models\CatalogItem;
-use App\Repositories\Eloquent\HistoricalBookingRepository;
+use App\Support\PortalSerializer;
 use Illuminate\Support\Arr;
 
 final class HistoricalBookingService
 {
-    public function __construct(private QuoteService $quotes, private AvailabilityService $availability, private OrderingService $ordering, private OrderingRepositoryInterface $orders, private IsnGatewayInterface $gateway, private HistoricalBookingRepository $repository) {}
+    public function __construct(
+        private QuoteService $quotes,
+        private AvailabilityService $availability,
+        private OrderingService $ordering,
+        private IsnGatewayInterface $gateway
+    ) {}
+
+    public function listing(int $page, int $limit): array
+    {
+        $rows = BookingCompletion::query()->orderByDesc('id')->paginate($limit, ['*'], 'page', $page);
+
+        return [
+            'items' => $rows->getCollection()->map(fn ($row) => PortalSerializer::model($row)),
+            'total' => $rows->total(),
+            'page' => $rows->currentPage(),
+            'limit' => $rows->perPage(),
+        ];
+    }
 
     public function sync(int $bookingId): BookingCompletion
     {
-        $record = $this->repository->findByBooking($bookingId);
+        $record = BookingCompletion::query()->where('booking_id', $bookingId)->firstOrFail();
         abort_unless($this->gateway->configured() && config('isn.writes_enabled'), 503, 'ISN synchronization is disabled.');
         if (in_array($record->status, ['SUBMITTED', 'REQUIRES_REVIEW'], true)) {
             return $record;
         }
         $lease = bin2hex(random_bytes(32));
-        abort_unless($this->repository->claim($record->id, $lease), 409, 'Historical synchronization is already running.');
+        abort_unless($this->claim($record->id, $lease), 409, 'Historical synchronization is already running.');
         try {
             $key = hash('sha256', 'historical:'.$record->remote_submission_key);
-            $existing = $this->orders->findByKey($key);
+            $existing = $this->ordering->findByKey($key);
             if ($existing) {
-                $this->repository->update($record, ['status' => $existing->status?->value === 'PROCESSING' ? 'REQUIRES_REVIEW' : $existing->status?->value, 'error_code' => $existing->error_code]);
+                $record->update(['status' => $existing->status?->value === 'PROCESSING' ? 'REQUIRES_REVIEW' : $existing->status?->value, 'error_code' => $existing->error_code]);
 
                 return $record;
             }
@@ -49,17 +64,31 @@ final class HistoricalBookingService
                 $slot = collect($slots)->first(fn ($slot) => $slot['time'] === $appointment['time'] && (! isset($appointment['inspectorId']) || $slot['inspectorId'] === $appointment['inspectorId']));
                 abort_unless($slot, 409, 'Historical appointment requires staff review.');
                 $input = $quoteInput + Arr::only($payload, ['customerType', 'contact', 'buyerContact']) + ['quoteId' => $priced['quoteId'], 'date' => $appointment['date'], 'time' => $appointment['time'], 'inspectorId' => $slot['inspectorId']];
-                $this->repository->update($record, ['sync_input' => $input]);
+                $record->update(['sync_input' => $input]);
             }
             $order = $this->ordering->submit($key, $record->sync_input);
-            $this->repository->update($record, ['status' => $order->status?->value, 'error_code' => $order->error_code]);
+            $record->update(['status' => $order->status?->value, 'error_code' => $order->error_code]);
 
             return $record;
         } catch (\Throwable $error) {
-            $this->repository->update($record, ['status' => 'REQUIRES_REVIEW', 'error_code' => 'HISTORICAL_SYNC_REVIEW']);
+            $record->update(['status' => 'REQUIRES_REVIEW', 'error_code' => 'HISTORICAL_SYNC_REVIEW']);
             throw $error;
         } finally {
-            $this->repository->release($record->id,$lease);
+            $this->release($record->id, $lease);
         }
+    }
+
+    private function claim(int $id, string $lease): bool
+    {
+        return BookingCompletion::query()
+            ->whereKey($id)
+            ->whereIn('status', ['PENDING_CONFIGURATION', 'FAILED', 'PROCESSING'])
+            ->where(fn ($q) => $q->whereNull('lease_expires_at')->orWhere('lease_expires_at', '<', now()))
+            ->update(['status' => 'PROCESSING', 'lease_id' => $lease, 'lease_expires_at' => now()->addMinutes(5)]) === 1;
+    }
+
+    private function release(int $id, string $lease): void
+    {
+        BookingCompletion::query()->whereKey($id)->where('lease_id', $lease)->update(['lease_id' => null, 'lease_expires_at' => null]);
     }
 }

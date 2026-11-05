@@ -12,12 +12,12 @@ use Spatie\Permission\PermissionRegistrar;
 
 final class LegacyImportService
 {
-    private const TABLES = ['User' => 'users', 'UserProfile' => 'user_profiles', 'MediaAsset' => 'media_assets', 'CatalogItem' => 'catalog_items', 'ContentEntry' => 'content_entries', 'RecommendationRule' => 'recommendation_rules', 'PortalSettings' => 'portal_settings', 'QuoteSnapshot' => 'quote_snapshots', 'OrderSubmission' => 'order_submissions', 'BookingDraft' => 'booking_drafts', 'BookingCompletion' => 'booking_completions', 'AuditLog' => 'audit_logs'];
+    private const TABLES = ['User' => 'users', 'UserProfile' => 'user_profiles', 'MediaAsset' => 'media_assets', 'CatalogItem' => 'catalog_items', 'ContentEntry' => 'content_entries', 'RecommendationRule' => 'recommendation_rules', 'PortalSettings' => 'portal_settings', 'QuoteSnapshot' => 'quote_snapshots', 'OrderSubmission' => 'order_submissions', 'BookingDraft' => 'booking_drafts', 'BookingCompletion' => 'booking_completions'];
 
     public function import(array $export, bool $dryRun = false): array
     {
         abort_unless(config('portal.mail_disabled') && ! config('isn.writes_enabled'), 409, 'Imports require mail delivery and ISN writes disabled.');
-        $allowed = array_merge(array_keys(self::TABLES), ['Role', 'Permission', 'RolePermission', 'CatalogMedia', 'ContentMedia', 'UserSession', 'Otp']);
+        $allowed = array_merge(array_keys(self::TABLES), ['Role', 'Permission', 'RolePermission', 'CatalogMedia', 'ContentMedia', 'UserSession', 'Otp', 'AuditLog']);
         if (array_diff(array_keys($export), $allowed)) {
             throw new \InvalidArgumentException('Unknown source entity in import.');
         }
@@ -83,15 +83,6 @@ final class LegacyImportService
                         $attributes['archival_integration_quote_id'] = $attributes['integration_quote_id'] ?? null;
                         unset($attributes['integration_quote_id']);
                     }
-                    if ($entity === 'AuditLog') {
-                        $actor = (string) $row['actorId'];
-                        $attributes['actor_id'] = $this->mapped('User', $actor, false);
-                        $attributes['actor_label'] = $attributes['actor_id'] ? null : $actor;
-                        $localType = ['content' => 'ContentEntry', 'ContentEntry' => 'ContentEntry', 'catalog' => 'CatalogItem', 'CatalogItem' => 'CatalogItem', 'media' => 'MediaAsset', 'MediaAsset' => 'MediaAsset', 'submission' => 'OrderSubmission', 'OrderSubmission' => 'OrderSubmission', 'settings' => 'PortalSettings', 'PortalSettings' => 'PortalSettings'][$row['entityType']] ?? null;
-                        $attributes['local_entity_id'] = $localType ? $this->mapped($localType, (string) $row['entityId'], false) : null;
-                        $attributes['external_entity_id'] = $attributes['local_entity_id'] ? null : (string) $row['entityId'];
-                        unset($attributes['entity_id']);
-                    }
                     $columns = Schema::getColumnListing($table);
                     $attributes = array_intersect_key($attributes, array_flip($columns));
                     foreach ($attributes as $key => $value) {
@@ -148,7 +139,7 @@ final class LegacyImportService
             throw new \InvalidArgumentException('Unresolved '.$entity.' source reference.');
         }
 
-return $id ? (int) $id : null;
+        return $id ? (int) $id : null;
     }
 
     private function remapJson(array $value, string $context = ''): array
@@ -163,7 +154,7 @@ return $id ? (int) $id : null;
                 $mapped[(string) $this->mapped('CatalogItem', (string) $id)] = $version;
             }
 
-return $mapped;
+            return $mapped;
         }
         if (in_array($context, ['serviceIds', 'service_ids'], true)) {
             return array_map(fn ($id) => $this->mapped('CatalogItem', (string) $id, false) ?? $id, $value);
@@ -173,8 +164,8 @@ return $mapped;
                 $value[$key] = $this->remapJson($item, (string) $key);
             } elseif (is_string($item) && $key === 'packageId') {
                 $value[$key] = $this->mapped('CatalogItem', $item, false) ?? $item;
-            } elseif (is_string($item) && in_array($key,['itemId', 'mediaId', 'avatarMediaId'],true)) {
-                $value[$key] = $this->mapped($key === 'itemId' ? 'CatalogItem' : 'MediaAsset',$item);
+            } elseif (is_string($item) && in_array($key, ['itemId', 'mediaId', 'avatarMediaId'], true)) {
+                $value[$key] = $this->mapped($key === 'itemId' ? 'CatalogItem' : 'MediaAsset', $item);
             }
         }
 

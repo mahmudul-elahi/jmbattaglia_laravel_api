@@ -2,8 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\DTOs\Ordering\OrderInput;
-use App\DTOs\Ordering\QuoteInput;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AvailabilityRequest;
 use App\Http\Requests\LookupRequest;
@@ -11,8 +9,8 @@ use App\Http\Requests\OrderRequest;
 use App\Http\Requests\QuoteRequest;
 use App\Http\Requests\RecommendationRequest;
 use App\Http\Resources\SubmissionReceiptResource;
-use App\Repositories\Eloquent\ContentRepository;
 use App\Services\AvailabilityService;
+use App\Services\ContentService;
 use App\Services\LookupService;
 use App\Services\OrderingService;
 use App\Services\QuoteService;
@@ -26,7 +24,7 @@ class OrderingController extends Controller
 
     public function quote(QuoteRequest $request): JsonResponse
     {
-        return ApiResponse::success($this->quotes->create(QuoteInput::fromArray($request->validated())->toArray()));
+        return ApiResponse::success($this->quotes->create($request->validated()));
     }
 
     public function availability(AvailabilityRequest $request, ?string $quoteId = null): JsonResponse
@@ -43,7 +41,7 @@ class OrderingController extends Controller
         $key = $request->header('Idempotency-Key', '');
         abort_unless(preg_match('/^[a-f0-9]{64}$/', $key), 400, 'Idempotency-Key must be a random 64-character hexadecimal secret.');
 
-        return ApiResponse::success((new SubmissionReceiptResource($this->orders->submit($key, OrderInput::fromArray($request->validated())->toArray())))->resolve($request), 'Request processed', 202);
+        return ApiResponse::success((new SubmissionReceiptResource($this->orders->submit($key, $request->validated())))->resolve($request), 'Request processed', 202);
     }
 
     public function receipt(Request $request, int $id): JsonResponse
@@ -73,13 +71,13 @@ class OrderingController extends Controller
         return ApiResponse::success($this->lookup->createClient($request->validated()));
     }
 
-    public function recommendations(RecommendationRequest $request, ContentRepository $repository): JsonResponse
+    public function recommendations(RecommendationRequest $request, ContentService $content): JsonResponse
     {
-        return ApiResponse::success($repository->recommend($request->validated()));
+        return ApiResponse::success($content->recommend($request->validated()));
     }
 
     public function retired(): JsonResponse
     {
-        abort(410,'Use POST /api/v1/portal/order.');
+        abort(410, 'Use POST /api/v1/portal/order.');
     }
 }

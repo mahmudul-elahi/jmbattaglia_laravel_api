@@ -2,13 +2,11 @@
 
 namespace App\Services;
 
-use App\Contracts\Gateways\IsnGatewayInterface;
-use App\Repositories\Eloquent\ContentRepository;
 use Carbon\CarbonImmutable;
 
 final class DashboardService
 {
-    public function __construct(private IsnGatewayInterface $gateway, private ContentRepository $content) {}
+    public function __construct(private IsnGatewayInterface $gateway, private ContentService $content) {}
 
     public function data(array $query): array
     {

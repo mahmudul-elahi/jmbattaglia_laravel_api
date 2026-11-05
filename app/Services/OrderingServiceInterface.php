@@ -1,10 +1,10 @@
 <?php
 
-namespace App\Contracts\Repositories;
+namespace App\Services;
 
 use App\Models\OrderSubmission;
 
-interface OrderingRepositoryInterface
+interface OrderingServiceInterface
 {
     public function listing(array $filters): array;
 

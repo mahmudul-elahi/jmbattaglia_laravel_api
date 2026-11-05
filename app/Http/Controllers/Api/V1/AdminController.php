@@ -6,8 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\AdminQueryRequest;
 use App\Http\Requests\RecommendationRequest;
 use App\Http\Requests\ReconcileRequest;
-use App\Repositories\Eloquent\ContentRepository;
-use App\Repositories\Eloquent\HistoricalBookingRepository;
+use App\Services\ContentService;
 use App\Services\DashboardService;
 use App\Services\HistoricalBookingService;
 use App\Services\NativeCatalogService;
@@ -22,7 +21,13 @@ use Illuminate\Support\Facades\Gate;
 
 class AdminController extends Controller
 {
-    public function __construct(private NativeCatalogService $native, private ContentRepository $content, private OrderingService $orders, private SubmissionRecoveryService $recovery, private HistoricalBookingRepository $history) {}
+    public function __construct(
+        private NativeCatalogService $native,
+        private ContentService $content,
+        private OrderingService $orders,
+        private SubmissionRecoveryService $recovery,
+        private HistoricalBookingService $history
+    ) {}
 
     public function dashboard(AdminQueryRequest $request, DashboardService $dashboard): JsonResponse
     {

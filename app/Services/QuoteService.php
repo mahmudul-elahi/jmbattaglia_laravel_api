@@ -2,34 +2,52 @@
 
 namespace App\Services;
 
-use App\Contracts\Gateways\IsnGatewayInterface;
-use App\Contracts\Repositories\QuotePreviewRepositoryInterface;
-use App\Repositories\Eloquent\ContentRepository;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Cache;
 
-final class QuoteService
+final class QuoteService implements QuotePreviewServiceInterface
 {
-    public function __construct(private IsnGatewayInterface $gateway, private QuotePreviewRepositoryInterface $previews, private ContentRepository $content) {}
+    public function __construct(
+        private IsnGatewayInterface $gateway,
+        private ContentService $content
+    ) {}
 
     public static function propertyPayload(array $p, bool $order = false): array
     {
-        return ['address1' => trim($p['address1']), 'address2' => trim($p['address2'] ?? ''), 'city' => trim($p['city']), 'state' => $p['state'], 'zip' => $p['zip'], 'squarefeet' => (string) $p['squareFeet'], 'yearbuilt' => (string) $p['yearBuilt'], ($order ? 'foundationtypeuuid' : 'foundationtype') => $p['foundationType']];
+        return [
+            'address1' => trim($p['address1']),
+            'address2' => trim($p['address2'] ?? ''),
+            'city' => trim($p['city']),
+            'state' => $p['state'],
+            'zip' => $p['zip'],
+            'squarefeet' => (string) $p['squareFeet'],
+            'yearbuilt' => (string) $p['yearBuilt'],
+            ($order ? 'foundationtypeuuid' : 'foundationtype') => $p['foundationType'],
+        ];
+    }
+
+    public function put(array $preview): string
+    {
+        $token = bin2hex(random_bytes(32));
+        Cache::store(config('portal.preview_store'))->put('portal:quote:'.$token, $preview, 1800);
+
+        return $token;
+    }
+
+    public function find(string $token): ?array
+    {
+        $quote = Cache::store(config('portal.preview_store'))->get('portal:quote:'.$token);
+        abort_unless($quote, 409, 'Quote has expired. Request a new quote.');
+
+        return $quote;
     }
 
     public function create(array $input): array
     {
         $preview = $this->price($input);
-        $token = $this->previews->put($preview);
+        $token = $this->put($preview);
 
         return ['quoteId' => $token] + Arr::only($preview, ['lines', 'totalCents', 'durationMinutes', 'serviceIds', 'packageId', 'orderTypeId', 'expiresAt']) + ['currency' => 'USD', 'timezone' => config('isn.timezone'), 'pricingStatus' => 'ESTIMATE'];
-    }
-
-    public function find(string $token): array
-    {
-        $quote = $this->previews->find($token);
-        abort_unless($quote, 409, 'Quote has expired. Request a new quote.');
-
-        return $quote;
     }
 
     public function price(array $input): array
@@ -78,7 +96,7 @@ final class QuoteService
         $p['foundationType'] = $foundation['id'];
         $p['foundationName'] = $foundation['name'];
         $checks = ['clientAttendance' => ['clientAttending', in_array($p['clientAttendance'] ?? '', ['FULL_INSPECTION', 'FINAL_WALKTHROUGH'], true)], 'occupancy' => ['occupied', ($p['occupancy'] ?? '') === 'OCCUPIED'], 'accessType' => ['gatedCommunity', ($p['accessType'] ?? '') !== 'OPEN'], 'alarmStatus' => ['alarmSystem', ($p['alarmStatus'] ?? '') !== 'NONE'], 'poolSpaType' => ['poolSpa', ($p['poolSpaType'] ?? '') !== 'NONE'], 'utilityStatus' => ['utilitiesOn', ($p['utilityStatus'] ?? '') === 'ALL_ON']];
-        foreach ($checks as $key => [$boolean,$value]) {
+        foreach ($checks as $key => [$boolean, $value]) {
             abort_if(isset($p[$key]) && $p[$boolean] !== $value, 400, $key.' does not match its summary boolean.');
         }
         $priced = $this->gateway->quote(self::propertyPayload($p), $services, $packageId, $orderType);

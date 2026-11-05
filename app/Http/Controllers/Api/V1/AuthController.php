@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1;
 
-use App\Contracts\Repositories\AccessTokenRepositoryInterface;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AuthRequest;
 use App\Http\Resources\UserResource;
@@ -14,7 +13,7 @@ use Illuminate\Http\Request;
 
 class AuthController extends Controller
 {
-    public function __construct(private AuthService $auth, private PasswordRecoveryService $recovery, private AccessTokenRepositoryInterface $tokens) {}
+    public function __construct(private AuthService $auth, private PasswordRecoveryService $recovery) {}
 
     public function login(AuthRequest $request): JsonResponse
     {
@@ -36,7 +35,7 @@ class AuthController extends Controller
 
     public function logout(Request $request): JsonResponse
     {
-        $this->tokens->revokeCurrent($request->user());
+        $this->auth->logout($request->user());
 
         return ApiResponse::success(null, 'Logged out');
     }
@@ -69,6 +68,6 @@ class AuthController extends Controller
     {
         $this->recovery->reset($request->validated('resetToken'), $request->validated('newPassword'));
 
-        return ApiResponse::success(null,'Password reset. Please log in.');
+        return ApiResponse::success(null, 'Password reset. Please log in.');
     }
 }
