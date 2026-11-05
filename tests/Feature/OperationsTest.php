@@ -1,0 +1,110 @@
+<?php
+
+use App\Contracts\Repositories\QuotePreviewRepositoryInterface;
+use App\Jobs\SendBookingReceipt;
+use App\Jobs\SendSecurityCode;
+use App\Models\BookingCompletion;
+use App\Models\CatalogItem;
+use App\Models\OrderSubmission;
+use App\Models\RecommendationRule;
+use App\Models\User;
+use App\Services\LookupService;
+use Database\Seeders\RolePermissionSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+
+uses(RefreshDatabase::class);
+it('recovers a missed notification dispatch and prevents duplicate receipt delivery', function (): void {
+    config(['portal.mail_disabled' => false]);
+    Queue::fake();
+    Mail::fake();
+    $order = OrderSubmission::factory()->create();
+    $this->artisan('portal:dispatch-receipts')->assertSuccessful();
+    Queue::assertPushed(SendBookingReceipt::class, fn ($job) => $job->orderId === $order->id);
+    $job = new SendBookingReceipt($order->id);
+    $job->handle();
+    $job->handle();
+    Mail::assertSentCount(1);
+    expect($order->fresh()->notification_pending)->toBeFalse();
+    expect($order->fresh()->notification_sent_at)->not->toBeNull();
+});
+it('preserves pending notifications while mail delivery is disabled', function (): void {
+    config(['portal.mail_disabled' => true]);
+    Mail::fake();
+    Queue::fake();
+    $order = OrderSubmission::factory()->create();
+    $this->artisan('portal:dispatch-receipts')->assertSuccessful();
+    (new SendBookingReceipt($order->id))->handle();
+    Queue::assertNothingPushed();
+    Mail::assertNothingSent();
+    expect($order->fresh()->notification_pending)->toBeTrue();
+});
+it('creates a local add-on with price and upload aliases then archives it by default', function (): void {
+    $this->seed(RolePermissionSeeder::class);
+    $user = User::factory()->create();
+    $user->assignRole('ADMIN');
+    $this->withToken($user->createToken('test')->plainTextToken);
+    Storage::fake('public');
+    config(['portal.media_disk' => 'public']);
+    $response = $this->post('/api/v1/admin/addons', ['name' => 'Radon testing', 'price' => '$79.50', 'file' => UploadedFile::fake()->image('radon.png')], ['Accept' => 'application/json'])->assertCreated()->assertJsonPath('data.priceCents', 7950)->assertJsonPath('data.status', 'PUBLISHED');
+    $id = $response->json('data.id');
+    $this->assertDatabaseHas('catalog_items', ['id' => $id, 'kind' => 'ADDON', 'price_cents' => 7950]);
+    expect(CatalogItem::find($id)->media()->count())->toBe(1);
+    $this->deleteJson('/api/v1/admin/addons/'.$id)->assertOk();
+    $this->getJson('/api/v1/portal/addons/'.$id)->assertNotFound();
+});
+it('requires every recommendation condition and excludes selected items', function (): void {
+    $item = CatalogItem::factory()->published()->create();
+    RecommendationRule::factory()->create(['item_id' => $item->id, 'conditions' => ['requiresPoolSpa' => true, 'builtBefore' => 2000]]);
+    $form = ['category' => 'RESALE_HOME', 'property' => ['address1' => '123 Main', 'city' => 'Atlanta', 'state' => 'GA', 'zip' => '30301', 'yearBuilt' => 1998, 'squareFeet' => 2200, 'foundationType' => 'foundation-1', 'clientAttending' => true, 'occupied' => true, 'gatedCommunity' => false, 'alarmSystem' => false, 'poolSpa' => true, 'sewageSystem' => 'PUBLIC', 'waterSystem' => 'PUBLIC', 'utilitiesOn' => true, 'referral' => 'Search']];
+    $this->postJson('/api/v1/portal/recommendations', $form)->assertOk()->assertJsonPath('data.0.item.id', $item->id);
+    $this->postJson('/api/v1/portal/recommendations', $form + ['selectedIds' => [$item->id]])->assertOk()->assertJsonCount(0, 'data');
+    $form['property']['yearBuilt'] = 2020;
+    $this->postJson('/api/v1/portal/recommendations', $form)->assertOk()->assertJsonCount(0, 'data');
+});
+it('applies role changes to the same bearer token without reissuing it', function (): void {
+    $this->seed(RolePermissionSeeder::class);
+    $user = User::factory()->create();
+    $user->assignRole('ADMIN');
+    $token = $user->createToken('test')->plainTextToken;
+    $this->withToken($token)->getJson('/api/v1/admin/integrations/isn/status')->assertOk();
+    $user->syncRoles(['USER']);
+    $this->app['auth']->forgetGuards();
+    $this->withToken($token)->getJson('/api/v1/admin/integrations/isn/status')->assertForbidden();
+});
+it('does not synchronize historical bookings when credentials or configuration change', function (): void {
+    Http::preventStrayRequests();
+    $completion = BookingCompletion::factory()->create();
+    config(['isn.mode' => 'isn', 'isn.access_key' => 'configured-key', 'isn.secret_key' => 'configured-secret', 'isn.writes_enabled' => true]);
+    $this->artisan('portal:dispatch-receipts')->assertSuccessful();
+    Http::assertNothingSent();
+    expect($completion->fresh()->status)->toBe('PENDING_CONFIGURATION');
+    expect(OrderSubmission::count())->toBe(0);
+});
+it('uses Redis preview expiry and atomically consumes verified lookup challenges', function (): void {
+    config(['database.redis.portal_test' => ['host' => '127.0.0.1', 'port' => 6379, 'database' => 15], 'cache.stores.portal_test' => ['driver' => 'redis', 'connection' => 'portal_test', 'lock_connection' => 'portal_test', 'prefix' => 'atease-fixture:'.bin2hex(random_bytes(8)).':'], 'portal.preview_store' => 'portal_test', 'portal.mail_disabled' => false, 'isn.mode' => 'isn', 'isn.base_url' => 'https://lookup.test', 'isn.access_key' => 'fixture', 'isn.secret_key' => 'fixture']);
+    $previews = app(QuotePreviewRepositoryInterface::class);
+    $token = $previews->put(['totalCents' => 45000]);
+    $store = Cache::store('portal_test');
+    $ttl = Redis::connection('portal_test')->ttl($store->getStore()->getPrefix().'portal:quote:'.$token);
+    expect($ttl)->toBeGreaterThan(1790)->toBeLessThanOrEqual(1800);
+    expect($previews->find($token))->toBe(['totalCents' => 45000]);
+    $store->forget('portal:quote:'.$token);
+    Queue::fake();
+    Http::preventStrayRequests();
+    Http::fake(['https://lookup.test/*' => Http::response(['status' => 'ok', 'client' => ['id' => 'client-1', 'first' => 'Jamie', 'last' => 'Rivera', 'email' => 'buyer@example.com', 'mobilephone' => '770-555-0100']])]);
+    $lookup = app(LookupService::class);
+    $challenge = $lookup->start(['email' => 'buyer@example.com', 'customerType' => 'HOME_BUYER']);
+    Queue::assertPushed(SendSecurityCode::class, 1);
+    $code = Queue::pushed(SendSecurityCode::class)->first()->code;
+    expect($lookup->verify($challenge['challengeId'], $code)['contact']['id'])->toBe('client-1');
+    expect(fn () => $lookup->verify($challenge['challengeId'], $code))->toThrow(HttpException::class);
+    Http::assertSentCount(1);
+})->skip(fn () => getenv('PORTAL_REDIS_TESTS') !== '1','Enable PORTAL_REDIS_TESTS=1 with disposable Redis access.');

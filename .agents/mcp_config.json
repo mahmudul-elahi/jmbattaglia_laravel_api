@@ -1,0 +1,11 @@
+{
+    "mcpServers": {
+        "laravel-boost": {
+            "command": "/Users/svad/.config/herd-lite/bin/php",
+            "args": [
+                "/Users/svad/Desktop/jmbattaglia_laravel_api/artisan",
+                "boost:mcp"
+            ]
+        }
+    }
+}
