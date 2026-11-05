@@ -111,6 +111,7 @@ class PackageRequest extends StrictRequest
                 'kind' => 'sometimes|in:PACKAGE,SERVICE,ADDON',
                 'tab' => 'sometimes|in:packages,add-ons,addons',
                 'category' => 'sometimes|in:RESALE_HOME,NEW_CONSTRUCTION',
+                'status' => 'sometimes|in:DRAFT,PUBLISHED',
                 'page' => 'sometimes|integer|min:1',
                 'limit' => 'sometimes|integer|min:1|max:100',
             ];

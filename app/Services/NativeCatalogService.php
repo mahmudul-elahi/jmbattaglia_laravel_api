@@ -70,9 +70,48 @@ final class NativeCatalogService
             $rows[] = $service + ['kind' => $service['ancillary'] ? 'ADDON' : 'SERVICE'];
         }
 
+        // Sort packages: newly created or updated packages first, then by sequence
+        usort($rows, function ($a, $b) {
+            if (($a['kind'] ?? '') === 'PACKAGE' && ($b['kind'] ?? '') === 'PACKAGE') {
+                $timeA = max(
+                    isset($a['updatedAt']) && $a['updatedAt'] ? strtotime($a['updatedAt']) : 0,
+                    isset($a['createdAt']) && $a['createdAt'] ? strtotime($a['createdAt']) : 0
+                );
+                $timeB = max(
+                    isset($b['updatedAt']) && $b['updatedAt'] ? strtotime($b['updatedAt']) : 0,
+                    isset($b['createdAt']) && $b['createdAt'] ? strtotime($b['createdAt']) : 0
+                );
+                if ($timeA !== $timeB) {
+                    return $timeB <=> $timeA;
+                }
+
+                return ($a['sequence'] ?? 0) <=> ($b['sequence'] ?? 0);
+            }
+
+            return 0;
+        });
+
         $kind ??= $query['kind'] ?? null;
+        $category = $query['category'] ?? null;
+        $status = isset($query['status']) ? strtoupper((string) $query['status']) : null;
         $search = mb_strtolower(trim($query['search'] ?? ''));
-        $rows = array_values(array_filter($rows, fn ($row) => (! $kind || $row['kind'] === $kind) && (! $search || str_contains(mb_strtolower($row['name']), $search))));
+
+        $rows = array_values(array_filter($rows, function ($row) use ($kind, $search, $category, $status) {
+            if ($kind && ($row['kind'] ?? null) !== $kind) {
+                return false;
+            }
+            if ($category && isset($row['category']) && $row['category'] !== $category) {
+                return false;
+            }
+            if ($status && isset($row['status']) && strtoupper((string) $row['status']) !== $status) {
+                return false;
+            }
+            if ($search && ! str_contains(mb_strtolower($row['name'] ?? ''), $search)) {
+                return false;
+            }
+
+            return true;
+        }));
 
         $page = $query['page'] ?? 1;
         $limit = $query['limit'] ?? 20;
@@ -381,7 +420,7 @@ final class NativeCatalogService
             'sequence' => $isnPkg['sequence'] ?? 0,
             'modifierIds' => $isnPkg['modifierIds'] ?? [],
             'source' => $isnPkg ? 'ISN' : 'LOCAL',
-            'category' => $local?->category?->value ?? 'RESALE_HOME',
+            'category' => $local?->category?->value ?? (str_contains(strtolower($isnPkg['name'] ?? ''), 'new construction') ? 'NEW_CONSTRUCTION' : 'RESALE_HOME'),
             'type' => $local?->type?->value ?? 'BUNDLE',
             'priceCents' => $priceCents,
             'price' => (string) $dollars,
