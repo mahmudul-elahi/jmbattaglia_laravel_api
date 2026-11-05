@@ -42,7 +42,7 @@ final class PortalSerializer
             $data[Str::camel($key)] = $value;
         }
 
-return $data;
+        return $data;
     }
 
     public static function attributes(array $input): array
@@ -52,6 +52,6 @@ return $data;
             $data[Str::snake($key)] = $value;
         }
 
-return $data;
+        return $data;
     }
 }

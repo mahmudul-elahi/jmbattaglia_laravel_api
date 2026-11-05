@@ -6,9 +6,11 @@ use App\Models\User;
 use App\Support\PortalSerializer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use InvalidArgumentException;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
+use Throwable;
 
 final class LegacyImportService
 {
@@ -19,7 +21,7 @@ final class LegacyImportService
         abort_unless(config('portal.mail_disabled') && ! config('isn.writes_enabled'), 409, 'Imports require mail delivery and ISN writes disabled.');
         $allowed = array_merge(array_keys(self::TABLES), ['Role', 'Permission', 'RolePermission', 'CatalogMedia', 'ContentMedia', 'UserSession', 'Otp', 'AuditLog']);
         if (array_diff(array_keys($export), $allowed)) {
-            throw new \InvalidArgumentException('Unknown source entity in import.');
+            throw new InvalidArgumentException('Unknown source entity in import.');
         }
         $counts = [];
         DB::beginTransaction();
@@ -118,7 +120,7 @@ final class LegacyImportService
                     DB::statement("SELECT setval(pg_get_serial_sequence('portal_settings', 'id'), GREATEST((SELECT COALESCE(MAX(id), 1) FROM portal_settings), 1))");
                 } DB::commit();
             }
-        } catch (\Throwable $error) {
+        } catch (Throwable $error) {
             DB::rollBack();
             throw $error;
         }
@@ -136,7 +138,7 @@ final class LegacyImportService
     {
         $id = DB::table('legacy_id_maps')->where('entity_type', $entity)->where('old_id', $oldId)->value('new_id');
         if (! $id && $required) {
-            throw new \InvalidArgumentException('Unresolved '.$entity.' source reference.');
+            throw new InvalidArgumentException('Unresolved '.$entity.' source reference.');
         }
 
         return $id ? (int) $id : null;

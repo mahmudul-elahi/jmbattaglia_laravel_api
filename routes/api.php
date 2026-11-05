@@ -13,7 +13,7 @@ use App\Http\Controllers\Api\V1\RoleController;
 use App\Http\Controllers\Api\V1\SettingsController;
 use Illuminate\Support\Facades\Route;
 
-Route::prefix('auth')->middleware('throttle:auth')->group(function (): void {
+Route::prefix('auth')->group(function (): void {
     Route::group([], function (): void {
         foreach (['login' => 'login', 'register' => 'register', 'forgot-password' => 'forgot', 'verify-reset-otp' => 'verifyReset', 'reset-password' => 'reset', 'email-verification/send' => 'sendEmail', 'email-verification/verify' => 'verifyEmail'] as $path => $action) {
             Route::post($path, [AuthController::class, $action]);
@@ -26,7 +26,7 @@ Route::prefix('auth')->middleware('throttle:auth')->group(function (): void {
 });
 Route::get('health/live', [HealthController::class, 'live']);
 Route::get('health/ready', [HealthController::class, 'ready']);
-Route::prefix('portal')->middleware('throttle:portal')->group(function (): void {
+Route::prefix('portal')->group(function (): void {
     Route::get('content', [ContentController::class, 'index']);
     Route::get('content/{id}', [ContentController::class, 'show'])->whereNumber('id');
     Route::get('addons', [CatalogController::class, 'index']);
@@ -37,21 +37,21 @@ Route::prefix('portal')->middleware('throttle:portal')->group(function (): void 
     }
     Route::get('packages/{id}', [NativeCatalogController::class, 'show']);
     Route::get('catalog/{id}', [NativeCatalogController::class, 'entry']);
-    Route::get('client/lookup/{email}', [OrderingController::class, 'email'])->middleware('throttle:auth');
-    Route::post('lookup/start', [OrderingController::class, 'start'])->middleware('throttle:auth');
-    Route::post('lookup/verify', [OrderingController::class, 'verify'])->middleware('throttle:auth');
+    Route::get('client/lookup/{email}', [OrderingController::class, 'email']);
+    Route::post('lookup/start', [OrderingController::class, 'start']);
+    Route::post('lookup/verify', [OrderingController::class, 'verify']);
     foreach (['quotes', 'calculateservicequote'] as $path) {
-        Route::post($path, [OrderingController::class, 'quote'])->middleware('throttle:quotes');
+        Route::post($path, [OrderingController::class, 'quote']);
     }
     Route::get('availableslots', [OrderingController::class, 'availability']);
     Route::get('quotes/{quoteId}/availability', [OrderingController::class, 'availability'])->where('quoteId', '[a-f0-9]{64}');
-    Route::post('order', [OrderingController::class, 'submit'])->middleware('throttle:orders');
+    Route::post('order', [OrderingController::class, 'submit']);
     Route::get('order/{id}', [OrderingController::class, 'receipt'])->whereNumber('id');
     Route::post('recommendations', [OrderingController::class, 'recommendations']);
     Route::post('submissions', [OrderingController::class, 'retired']);
     Route::post('client', [OrderingController::class, 'client'])->middleware(['auth:sanctum', 'role:ADMIN', 'can:clients.manage']);
 });
-Route::prefix('admin')->middleware(['auth:sanctum', 'role:ADMIN', 'throttle:portal'])->group(function (): void {
+Route::prefix('admin')->middleware(['auth:sanctum', 'role:ADMIN'])->group(function (): void {
     foreach (['dashboard' => 'dashboard', 'dashboard/metrics' => 'metrics', 'dashboard/recent-packages' => 'recent'] as $path => $action) {
         Route::get($path, [AdminController::class, $action])->middleware('can:dashboard.view');
     }
@@ -99,6 +99,6 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role:ADMIN', 'throttle:port
     Route::post('completed-bookings/{bookingId}/sync-isn', [AdminController::class, 'sync'])->whereNumber('bookingId')->middleware('can:submissions.reconcile');
     Route::get('permissions', [RoleController::class, 'permissions'])->middleware('can:roles.manage');
     Route::patch('roles/{id}/permissions', [RoleController::class, 'grants'])->whereNumber('id')->middleware('can:roles.manage');
-    Route::get('roles',[RoleController::class, 'index'])->middleware('can:roles.manage');
-    Route::post('roles/assign',[RoleController::class, 'assign'])->middleware('can:roles.manage');
+    Route::get('roles', [RoleController::class, 'index'])->middleware('can:roles.manage');
+    Route::post('roles/assign', [RoleController::class, 'assign'])->middleware('can:roles.manage');
 });

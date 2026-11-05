@@ -158,5 +158,5 @@ it('permits hidden native services through eligible packages and rejects indepen
     $this->postJson('/api/v1/portal/quotes', $form)->assertStatus(400);
     $form['serviceIds'] = [];
     $form['packageId'] = 'package-1';
-    $this->postJson('/api/v1/portal/quotes', $form)->assertOk()->assertJsonPath('data.serviceIds',['service-1', 'hidden-service']);
+    $this->postJson('/api/v1/portal/quotes', $form)->assertOk()->assertJsonPath('data.serviceIds', ['service-1', 'hidden-service']);
 });

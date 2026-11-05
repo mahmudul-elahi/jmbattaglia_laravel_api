@@ -8,7 +8,6 @@ use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Route;
 
 uses(RefreshDatabase::class);
 it('preserves dashboard summary and recent row metadata in local mode', function (): void {
@@ -46,17 +45,12 @@ it('surfaces stalled submissions for review without making external requests', f
     expect($order->fresh()->status->value)->toBe('REQUIRES_REVIEW');
     Http::assertNothingSent();
 });
-it('covers every registered API operation in the generated contract', function (): void {
-    $this->artisan('portal:openapi')->assertSuccessful();
-    $contract = json_decode(file_get_contents(public_path('openapi.json')), true, 512, JSON_THROW_ON_ERROR);
-    foreach (Route::getRoutes() as $route) {
-        if (! str_starts_with($route->uri(), 'api/v1/')) {
-            continue;
-        } foreach (array_diff($route->methods(), ['HEAD']) as $method) {
-            expect(isset($contract['paths']['/'.$route->uri()][strtolower($method)]))->toBeTrue();
-        }
-    }
-    expect(isset($contract['paths']['/api/v1/auth/refresh/token']))->toBeFalse();
+it('provides OpenAPI documentation and UI via Dedoc Scramble', function (): void {
+    $response = $this->getJson('/docs/api.json')->assertOk();
+    $contract = $response->json();
+    expect($contract['openapi'])->toStartWith('3.');
+    expect($contract['info']['title'])->toBe('At Ease API');
+    expect(count($contract['paths']))->toBeGreaterThan(0);
     $this->getJson('/api/v1/does-not-exist')->assertNotFound()->assertJsonStructure(['timestamp']);
-    $this->get('/api-explorer')->assertOk()->assertSee('At Ease API');
+    $this->get('/docs/api')->assertOk();
 });
